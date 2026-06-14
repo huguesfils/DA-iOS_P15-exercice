@@ -1,0 +1,43 @@
+name: iOS Build and Test
+
+# Déclenche le pipeline à chaque ouverture/mise à jour d'une pull request ciblant main.
+# Objectif : garantir qu'un code mergé sur main compile et passe les tests unitaires.
+on:
+  pull_request:
+    branches:
+      - main
+
+# Permissions nécessaires pour que le rapport de tests soit publié sur la PR (check run).
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: macos-latest
+
+    steps:
+      # 1. Récupère le code source du repository pour le rendre accessible aux étapes suivantes.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Compile l'application et exécute les tests unitaires sur un simulateur iOS.
+      #    L'action génère un bundle de résultats (.xcresult) consommé à l'étape suivante.
+      - name: Build and Test
+        uses: sersoft-gmbh/xcodebuild-action@v3.2.0
+        with:
+          project: EPCollaboratif.xcodeproj
+          scheme: EPCollaboratif
+          destination: 'platform=iOS Simulator,name=iPhone 14'
+          action: test
+          result-bundle-path: 'TestResults/TestResults.xcresult'
+
+      # 3. Transforme le .xcresult en rapport lisible directement dans la PR.
+      #    S'exécute que les tests réussissent OU échouent, pour toujours avoir un retour.
+      - name: Process Test Results
+        uses: kishikawakatsumi/xcresulttool@v1
+        with:
+          path: TestResults/TestResults.xcresult
+        if: success() || failure()
