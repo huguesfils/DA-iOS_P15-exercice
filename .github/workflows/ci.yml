@@ -1,41 +1,48 @@
 name: iOS Build and Test
-
-# Déclenche le pipeline à chaque ouverture/mise à jour d'une pull request ciblant main.
-# Objectif : garantir qu'un code mergé sur main compile et passe les tests unitaires.
 on:
   pull_request:
     branches:
       - main
 
-permissions:
-  contents: read
-
 jobs:
   build-and-test:
-    name: Build & Test
-    runs-on: macos-latest
+    runs-on: macos-14
 
     steps:
-      # 1. Récupère le code source du repository pour le rendre accessible aux étapes suivantes.
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Compile l'application et exécute les tests unitaires sur un simulateur iOS.
-      #    L'action génère un bundle de résultats (.xcresult) consommé à l'étape suivante.
-      - name: Build and Test
-        uses: sersoft-gmbh/xcodebuild-action@v3.2.0
-        with:
-          project: EPCollaboratif.xcodeproj
-          scheme: EPCollaboratif
-          destination: 'platform=iOS Simulator,name=iPhone 16'
-          action: test
-          result-bundle-path: 'TestResults/TestResults.xcresult'
+      - name: Clean DerivedData
+        run: rm -rf ~/Library/Developer/Xcode/DerivedData
 
-      # 3. Conserve le bundle de résultats (.xcresult) comme artefact téléchargeable,
-      #    que les tests réussissent OU échouent, pour analyse a posteriori dans Xcode.
-      - name: Upload test results
+      - name: Run tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project EPCollaboratif.xcodeproj \
+            -scheme EPCollaboratif \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 15 Pro' \
+            -derivedDataPath DerivedData \
+            -resultBundlePath test-results.xcresult \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            | xcbeautify
+      - name: Process Test Results
+        uses: kishikawakatsumi/xcresulttool@v1
+        with:
+          path: test-results.xcresult
+          token: ${{ secrets.GITHUB_TOKEN }}
+        if: success() || failure()
+        continue-on-error: true
+
+      - name: Upload test bundle
         uses: actions/upload-artifact@v4
         with:
-          name: TestResults
-          path: TestResults/TestResults.xcresult
-        if: success() || failure()
+          name: test-results
+          path: test-results.xcresult
+        if: always()
