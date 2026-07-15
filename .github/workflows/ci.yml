@@ -4,6 +4,10 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   build-and-test:
     runs-on: macos-14
@@ -32,6 +36,7 @@ jobs:
             -skipPackagePluginValidation \
             -skipMacroValidation \
             | xcbeautify
+
       - name: Process Test Results
         uses: kishikawakatsumi/xcresulttool@v1
         with:
