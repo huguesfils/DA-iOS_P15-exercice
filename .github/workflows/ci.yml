@@ -1,78 +1,48 @@
 name: iOS Build and Test
-
-# Déclenche le pipeline à chaque ouverture/mise à jour d'une pull request ciblant main.
-# Objectif : garantir qu'un code mergé sur main compile et passe les tests unitaires.
 on:
   pull_request:
     branches:
       - main
 
-permissions:
-  contents: read
-
 jobs:
   build-and-test:
-    name: Build & Test
-    runs-on: macos-latest
-
-    env:
-      RESULT_BUNDLE: TestResults/TestResults.xcresult
+    runs-on: macos-14
 
     steps:
-      # 1. Récupère le code source du repository pour le rendre accessible aux étapes suivantes.
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
-      # 2. Repart d'un cache de build propre pour éviter les faux positifs hérités d'un run précédent.
       - name: Clean DerivedData
         run: rm -rf ~/Library/Developer/Xcode/DerivedData
 
-      # 3. Compile l'application et exécute les tests unitaires sur un simulateur iOS.
-      #    Appel direct à xcodebuild (plus d'action tierce) pour maîtriser l'emplacement
-      #    exact du bundle de résultats et supprimer la dépendance au runtime Node déprécié.
-      #    La signature de code est désactivée (inutile pour des tests unitaires en CI).
-      #    set -o pipefail garantit que l'échec de xcodebuild fait échouer l'étape
-      #    même quand la sortie est passée à xcbeautify.
-      - name: Build and Test
+      - name: Run tests
         run: |
           set -o pipefail
           xcodebuild test \
             -project EPCollaboratif.xcodeproj \
             -scheme EPCollaboratif \
             -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination 'platform=iOS Simulator,name=iPhone 15 Pro' \
             -derivedDataPath DerivedData \
-            -resultBundlePath "$RESULT_BUNDLE" \
+            -resultBundlePath test-results.xcresult \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO \
             -skipPackagePluginValidation \
             -skipMacroValidation \
             | xcbeautify
-
-      # 4. Génère un résumé lisible des tests dans l'onglet Summary du job,
-      #    via l'outil natif xcresulttool (livré avec Xcode, aucune action tierce non maintenue).
-      - name: Test summary
-        if: success() || failure()
-        run: |
-          {
-            echo "## Résultats des tests"
-            echo '```'
-            xcrun xcresulttool get test-results summary --path "$RESULT_BUNDLE"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      # 5. Compresse le bundle .xcresult avec ditto pour préserver son intégrité
-      #    (symlinks internes) avant l'upload, puis l'archive comme artefact téléchargeable,
-      #    que les tests réussissent OU échouent, pour analyse a posteriori dans Xcode.
-      - name: Compress test results
-        if: success() || failure()
-        run: ditto -c -k --keepParent "$RESULT_BUNDLE" TestResults.xcresult.zip
-
-      - name: Upload test results
-        if: success() || failure()
-        uses: actions/upload-artifact@v5
+      - name: Process Test Results
+        uses: kishikawakatsumi/xcresulttool@v1
         with:
-          name: TestResults
-          path: TestResults.xcresult.zip
-          if-no-files-found: error
+          path: test-results.xcresult
+          token: ${{ secrets.GITHUB_TOKEN }}
+        if: success() || failure()
+        continue-on-error: true
+
+      - name: Upload test bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.xcresult
+        if: always()
